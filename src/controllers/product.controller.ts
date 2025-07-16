@@ -134,47 +134,74 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       isActive
     } = req.query;
     
+    console.log('=== Product Count Debug ===');
+    
+    // Đếm tổng số sản phẩm trong database
+    const totalInDB = await Product.countDocuments({});
+    console.log('Total products in database:', totalInDB);
+    
+    // Đếm sản phẩm active
+    const activeCount = await Product.countDocuments({ isActive: true });
+    console.log('Active products:', activeCount);
+    
+    // Đếm sản phẩm inactive
+    const inactiveCount = await Product.countDocuments({ isActive: false });
+    console.log('Inactive products:', inactiveCount);
+    
+    // Đếm sản phẩm không có field isActive
+    const missingActiveField = await Product.countDocuments({ isActive: { $exists: false } });
+    console.log('Products missing isActive field:', missingActiveField);
+    
     // Xây dựng điều kiện lọc
     const filter: any = {};
     
     // Tạo array để chứa các điều kiện $and
     const andConditions: any[] = [];
     
-    // Lọc theo giá - ưu tiên giá sale nếu có
+    // Lọc theo giá - ưu tiên giá sale nếu có và hợp lệ
     if (minPrice !== undefined || maxPrice !== undefined) {
       const priceConditions: any[] = [];
       
       if (minPrice !== undefined && maxPrice !== undefined) {
-        // Sản phẩm có sale: lọc theo salePrice
+        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
-          salePrice: { $gte: Number(minPrice), $lte: Number(maxPrice) } 
+          salePrice: { $gt: 0, $gte: Number(minPrice), $lte: Number(maxPrice) } 
         });
-        // Sản phẩm không sale: lọc theo price
+        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
-          isSale: false, 
+          $or: [
+            { isSale: false },
+            { isSale: true, salePrice: { $eq: 0 } }
+          ],
           price: { $gte: Number(minPrice), $lte: Number(maxPrice) } 
         });
       } else if (minPrice !== undefined) {
-        // Sản phẩm có sale: lọc theo salePrice
+        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
-          salePrice: { $gte: Number(minPrice) } 
+          salePrice: { $gt: 0, $gte: Number(minPrice) } 
         });
-        // Sản phẩm không sale: lọc theo price
+        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
-          isSale: false, 
+          $or: [
+            { isSale: false },
+            { isSale: true, salePrice: { $eq: 0 } }
+          ],
           price: { $gte: Number(minPrice) } 
         });
       } else if (maxPrice !== undefined) {
-        // Sản phẩm có sale: lọc theo salePrice
+        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
-          salePrice: { $lte: Number(maxPrice) } 
+          salePrice: { $gt: 0, $lte: Number(maxPrice) } 
         });
-        // Sản phẩm không sale: lọc theo price
+        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
-          isSale: false, 
+          $or: [
+            { isSale: false },
+            { isSale: true, salePrice: { $eq: 0 } }
+          ],
           price: { $lte: Number(maxPrice) } 
         });
       }
@@ -212,6 +239,13 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       filter.$and = andConditions;
     }
     
+    console.log('Filter being applied:', JSON.stringify(filter, null, 2));
+    
+    // Đếm sản phẩm thỏa mãn filter
+    const filteredCount = await Product.countDocuments(filter);
+    console.log('Products matching filter:', filteredCount);
+    console.log('=============================');
+    
     // Xác định hướng sắp xếp
     const sort: any = {};
     
@@ -238,12 +272,12 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
         pipeline.push({ $match: filter });
       }
       
-      // Thêm field actualPrice để sort
+      // Thêm field actualPrice để sort - xử lý salePrice = 0
       pipeline.push({
         $addFields: {
           actualPrice: {
             $cond: {
-              if: "$isSale",
+              if: { $and: ["$isSale", { $gt: ["$salePrice", 0] }] },
               then: "$salePrice", 
               else: "$price"
             }
