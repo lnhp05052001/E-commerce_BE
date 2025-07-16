@@ -3,6 +3,7 @@ import { ProductRequest } from '../dtos/product.dto';
 import Product from '../models/product.model';
 import { asyncHandler, sendErrorResponse, sendSuccessResponse } from '../utils';
 import { populateProduct } from '../utils/populate-helper';
+import mongoose from 'mongoose';
 
 /**
  * @desc    Tạo sản phẩm mới
@@ -183,12 +184,12 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
     
     // Lọc theo thương hiệu
     if (brandId) {
-      andConditions.push({ brand: brandId });
+      andConditions.push({ brand: new mongoose.Types.ObjectId(brandId as string) });
     }
     
     // Lọc theo danh mục
     if (categoryId) {
-      andConditions.push({ category: categoryId });
+      andConditions.push({ category: new mongoose.Types.ObjectId(categoryId as string) });
     }
     
     // Lọc theo trạng thái hoạt động - chỉ thêm vào filter nếu được chỉ định
@@ -224,6 +225,11 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       // Sắp xếp bằng aggregation để tính giá thực tế
       const direction = sortDirection === 'asc' ? 1 : -1;
       
+      console.log('=== Backend Price Sort Debug ===');
+      console.log('Filter:', JSON.stringify(filter, null, 2));
+      console.log('Sort direction:', direction);
+      console.log('Page:', page, 'Size:', size, 'Skip:', skip);
+      
       // Tạo pipeline aggregate để tính giá thực tế và sắp xếp
       const pipeline: any[] = [];
       
@@ -248,8 +254,11 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       // Sort theo actualPrice
       pipeline.push({ $sort: { actualPrice: direction } });
       
+      console.log('Aggregation Pipeline:', JSON.stringify(pipeline, null, 2));
+      
       // Đếm tổng số documents
       const totalItems = await Product.countDocuments(filter);
+      console.log('Total items from countDocuments:', totalItems);
       
       // Thêm skip và limit
       pipeline.push({ $skip: skip });
@@ -257,6 +266,7 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       
       // Thực hiện aggregation
       const productDocs = await Product.aggregate(pipeline);
+      console.log('Products returned from aggregation:', productDocs.length);
       
       // Convert về model instances và populate
       const products = await Promise.all(
@@ -265,6 +275,16 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
           return await populateProduct(product);
         })
       );
+      
+      console.log('Final products count:', products.length);
+      console.log('First few products prices:', products.slice(0, 3).map(p => ({
+        name: p?.name,
+        price: p?.price,
+        salePrice: p?.salePrice,
+        isSale: p?.isSale,
+        actualPrice: p?.isSale ? p?.salePrice : p?.price
+      })));
+      console.log('================================');
       
       // Tạo thông tin phân trang
       const pagination = {
