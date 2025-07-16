@@ -235,6 +235,29 @@ export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
 export const changePassword = asyncHandler(async (req: Request, res: Response) => {
   const { oldPassword, newPassword }: ChangePasswordRequest = req.body;
 
+  // Validate input
+  if (!oldPassword || !newPassword) {
+    return sendErrorResponse(res, 'Mật khẩu cũ và mật khẩu mới là bắt buộc', 400);
+  }
+
+  // Validate new password strength
+  if (newPassword.length < 8) {
+    return sendErrorResponse(res, 'Mật khẩu mới phải có ít nhất 8 ký tự', 400);
+  }
+
+  const hasUppercase = /[A-Z]/.test(newPassword);
+  const hasLowercase = /[a-z]/.test(newPassword);
+  const hasNumbers = /\d/.test(newPassword);
+
+  if (!hasUppercase || !hasLowercase || !hasNumbers) {
+    return sendErrorResponse(res, 'Mật khẩu mới phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số', 400);
+  }
+
+  // Check if new password is same as old password
+  if (oldPassword === newPassword) {
+    return sendErrorResponse(res, 'Mật khẩu mới phải khác mật khẩu hiện tại', 400);
+  }
+
   // Tìm người dùng và bao gồm trường password
   const user = await User.findById(req.user._id).select('+password');
 
@@ -248,11 +271,16 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
     return sendErrorResponse(res, 'Mật khẩu cũ không đúng', 401);
   }
 
-  // Cập nhật mật khẩu mới
-  user.password = newPassword;
-  await user.save();
+  try {
+    // Cập nhật mật khẩu mới (sẽ được hash trong pre-save hook)
+    user.password = newPassword;
+    await user.save();
 
-  return sendSuccessResponse(res, 'Đổi mật khẩu thành công');
+    return sendSuccessResponse(res, 'Đổi mật khẩu thành công');
+  } catch (error) {
+    console.error('Error changing password:', error);
+    return sendErrorResponse(res, 'Lỗi server khi đổi mật khẩu', 500);
+  }
 });
 
 /**

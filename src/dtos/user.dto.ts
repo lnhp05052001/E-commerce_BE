@@ -47,6 +47,19 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
+// Interface cho validation kết quả mật khẩu
+export interface PasswordValidation {
+  isValid: boolean;
+  message: string;
+  requirements: {
+    minLength: boolean;
+    hasUppercase: boolean;
+    hasLowercase: boolean;
+    hasNumbers: boolean;
+    hasSpecialChar: boolean;
+  };
+}
+
 // Interface cho OTP
 export interface OtpRequest {
   email: string;

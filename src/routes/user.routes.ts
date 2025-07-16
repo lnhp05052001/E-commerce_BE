@@ -15,6 +15,7 @@ import {
     verifyOtp,
 } from '../controllers/user.controller';
 import { admin, protect } from '../middleware/auth.middleware';
+import { passwordChangeRateLimit, loginRateLimit, forgotPasswordRateLimit } from '../middleware/rateLimiter.middleware';
 
 const router = Router();
 
@@ -99,7 +100,7 @@ router.post('/register', register);
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', login);
+router.post('/login', loginRateLimit, login);
 
 /**
  * @swagger
@@ -125,7 +126,7 @@ router.post('/login', login);
  *       404:
  *         description: User not found
  */
-router.post('/send-otp', sendOtp);
+router.post('/send-otp', forgotPasswordRateLimit, sendOtp);
 
 /**
  * @swagger
@@ -258,7 +259,7 @@ router.put('/update', protect, updateUser);
  *       401:
  *         description: Incorrect old password
  */
-router.post('/change-password', protect, changePassword);
+router.post('/change-password', passwordChangeRateLimit, protect, changePassword);
 
 /**
  * @swagger
