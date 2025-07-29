@@ -20,14 +20,30 @@ export const populateProduct = async (
 
   return (await Product.findById(product._id)
     .populate("category", "name slug")
-    .populate("brand", "name logo slug")
-    .populate({
-      path: "reviews",
-      populate: {
-        path: "user",
-        select: "username avatar",
-      },
-    })) as unknown as IProductPopulated;
+    .populate("brand", "name logo slug")) as unknown as IProductPopulated;
+};
+
+/**
+ * Populate nhiều sản phẩm cùng lúc (tối ưu hiệu suất)
+ * @param products - Mảng các tài liệu sản phẩm từ MongoDB
+ * @returns Mảng sản phẩm đã được populated
+ */
+export const populateMultipleProducts = async (
+  products: mongoose.Document[]
+): Promise<IProductPopulated[]> => {
+  if (!products || products.length === 0) return [];
+
+  const productIds = products.map(p => p._id);
+  
+  const populatedProducts = await Product.find({ _id: { $in: productIds } })
+    .populate("category", "name slug")
+    .populate("brand", "name logo slug");
+    
+  // Maintain original order
+  const productMap = new Map();
+  populatedProducts.forEach((p: any) => productMap.set(p._id.toString(), p));
+  
+  return productIds.map((id: any) => productMap.get(id.toString())).filter(Boolean) as IProductPopulated[];
 };
 
 /**

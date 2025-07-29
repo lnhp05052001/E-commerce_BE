@@ -3,7 +3,6 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { Relation, RelationList } from '../types/database';
 import { IAddress } from './address.model';
 import { ICart } from './cart.model';
-import { IReview } from './review.model';
  
 export interface IUser extends Document {
   username: string;
@@ -16,7 +15,6 @@ export interface IUser extends Document {
   otp?: string;
   role: string;
   addresses: RelationList<IAddress>;
-  reviews: RelationList<IReview>;
   cart?: Relation<ICart>;
   createdAt: Date;
   updatedAt: Date;
@@ -68,10 +66,6 @@ const UserSchema = new Schema<IUser>(
     addresses: [{
       type: Schema.Types.ObjectId,
       ref: 'Address'
-    }],
-    reviews: [{
-      type: Schema.Types.ObjectId,
-      ref: 'Review'
     }],
     cart: {
       type: Schema.Types.ObjectId,

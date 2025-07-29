@@ -2,7 +2,6 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { Relation, RelationList } from '../types/database';
 import { IBrand } from './brand.model';
 import { ICategory } from './category.model';
-import { IReview } from './review.model';
  
 export interface IProduct extends Document {
   name: string;
@@ -22,7 +21,6 @@ export interface IProduct extends Document {
   category: Relation<ICategory>;
   brand?: Relation<IBrand>;
   productImages?: string[]; // Array of image URLs
-  reviews?: RelationList<IReview>;
   slug: string;
   isActive: boolean;
   createdAt: Date;
@@ -94,10 +92,6 @@ const ProductSchema = new Schema<IProduct>(
       type: [String],
       default: [],
     },
-    reviews: [{
-      type: Schema.Types.ObjectId,
-      ref: 'Review',
-    }],
     slug: {
       type: String,
       unique: true,

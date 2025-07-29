@@ -12,6 +12,7 @@
     "mini-seed": "ts-node src/scripts/mini-seed.ts",
     "seed:clothing-categories": "ts-node src/scripts/seed-clothing-categories.ts",
     "seed:clothing-products": "ts-node src/scripts/sample-clothing-products.ts",
+    "create-indexes": "ts-node src/scripts/create-indexes.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

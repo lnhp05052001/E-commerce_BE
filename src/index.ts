@@ -9,9 +9,6 @@ import { setupSwagger } from './config/swagger';
 import { errorHandler, notFound } from './middleware/error.middleware';
 import './models/index'; // Import all models to ensure they're registered
 import addressRoutes from './routes/address.routes';
-import blogRoutes from './routes/blog.routes';
-import blogCategoryRoutes from './routes/blogCategory.routes';
-import blogTagRoutes from './routes/blogTag.routes';
 import brandRoutes from './routes/brand.routes';
 import cartRoutes from './routes/cart.routes';
 import categoryRoutes from './routes/category.routes';
@@ -75,9 +72,6 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/user', userRoutes);
 app.use('/api/address', addressRoutes);
-app.use('/api/blog', blogRoutes);
-app.use('/api/blog-category', blogCategoryRoutes);
-app.use('/api/blog-tags', blogTagRoutes);
 app.use('/api/category', categoryRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/brand', brandRoutes);

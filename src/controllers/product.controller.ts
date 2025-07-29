@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ProductRequest } from '../dtos/product.dto';
 import Product from '../models/product.model';
 import { asyncHandler, sendErrorResponse, sendSuccessResponse } from '../utils';
-import { populateProduct } from '../utils/populate-helper';
+import { populateProduct, populateMultipleProducts } from '../utils/populate-helper';
 import mongoose from 'mongoose';
 
 /**
@@ -22,7 +22,6 @@ export const createProduct = asyncHandler(async (req: Request, res: Response) =>
     
     return sendSuccessResponse(res, 'Sản phẩm được tạo thành công', populatedProduct, 201);
   } catch (error: any) {
-    console.log(error);
     if (error.name === 'ValidationError') {
       return sendErrorResponse(res, error.message, 400);
     }
@@ -41,7 +40,6 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
   
   try {
     // Tìm và kiểm tra sản phẩm có tồn tại không
-    console.log(productData)
     const product = await Product.findById(id);
     if (!product) {
       return sendErrorResponse(res, 'Không tìm thấy sản phẩm', 404);
@@ -117,7 +115,7 @@ export const getProductById = asyncHandler(async (req: Request, res: Response) =
 });
 
 /**
- * @desc    Lấy danh sách tất cả sản phẩm (có phân trang và lọc)
+ * @desc    Lấy danh sách tất cả sản phẩm (có phân trang và lọc) - Tối ưu hiệu suất
  * @route   GET /api/products
  * @access  Public
  */
@@ -134,28 +132,13 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       isActive
     } = req.query;
     
-    console.log('=== Product Count Debug ===');
+    // Lấy thông tin phân trang
+    const page = parseInt(req.query.page as string) || 0;
+    const size = parseInt(req.query.size as string) || 10;
+    const skip = page * size;
     
-    // Đếm tổng số sản phẩm trong database
-    const totalInDB = await Product.countDocuments({});
-    console.log('Total products in database:', totalInDB);
-    
-    // Đếm sản phẩm active
-    const activeCount = await Product.countDocuments({ isActive: true });
-    console.log('Active products:', activeCount);
-    
-    // Đếm sản phẩm inactive
-    const inactiveCount = await Product.countDocuments({ isActive: false });
-    console.log('Inactive products:', inactiveCount);
-    
-    // Đếm sản phẩm không có field isActive
-    const missingActiveField = await Product.countDocuments({ isActive: { $exists: false } });
-    console.log('Products missing isActive field:', missingActiveField);
-    
-    // Xây dựng điều kiện lọc
-    const filter: any = {};
-    
-    // Tạo array để chứa các điều kiện $and
+    // Xây dựng match stage cho aggregation
+    const matchStage: any = {};
     const andConditions: any[] = [];
     
     // Lọc theo giá - ưu tiên giá sale nếu có và hợp lệ
@@ -163,12 +146,10 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       const priceConditions: any[] = [];
       
       if (minPrice !== undefined && maxPrice !== undefined) {
-        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
           salePrice: { $gt: 0, $gte: Number(minPrice), $lte: Number(maxPrice) } 
         });
-        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
           $or: [
             { isSale: false },
@@ -177,12 +158,10 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
           price: { $gte: Number(minPrice), $lte: Number(maxPrice) } 
         });
       } else if (minPrice !== undefined) {
-        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
           salePrice: { $gt: 0, $gte: Number(minPrice) } 
         });
-        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
           $or: [
             { isSale: false },
@@ -191,12 +170,10 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
           price: { $gte: Number(minPrice) } 
         });
       } else if (maxPrice !== undefined) {
-        // Sản phẩm có sale với salePrice hợp lệ (> 0): lọc theo salePrice
         priceConditions.push({ 
           isSale: true, 
           salePrice: { $gt: 0, $lte: Number(maxPrice) } 
         });
-        // Sản phẩm không sale hoặc có sale nhưng salePrice = 0: lọc theo price
         priceConditions.push({ 
           $or: [
             { isSale: false },
@@ -219,7 +196,7 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
       andConditions.push({ category: new mongoose.Types.ObjectId(categoryId as string) });
     }
     
-    // Lọc theo trạng thái hoạt động - chỉ thêm vào filter nếu được chỉ định
+    // Lọc theo trạng thái hoạt động
     if (isActive !== undefined) {
       andConditions.push({ isActive: isActive === 'true' });
     }
@@ -236,45 +213,41 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
     
     // Kết hợp tất cả điều kiện
     if (andConditions.length > 0) {
-      filter.$and = andConditions;
+      matchStage.$and = andConditions;
     }
     
-    console.log('Filter being applied:', JSON.stringify(filter, null, 2));
+    // Xây dựng aggregation pipeline
+    const pipeline: any[] = [];
     
-    // Đếm sản phẩm thỏa mãn filter
-    const filteredCount = await Product.countDocuments(filter);
-    console.log('Products matching filter:', filteredCount);
-    console.log('=============================');
+    // Match stage
+    if (Object.keys(matchStage).length > 0) {
+      pipeline.push({ $match: matchStage });
+    }
     
-    // Xác định hướng sắp xếp
-    const sort: any = {};
-    
-    // Lấy thông tin phân trang
-    const page = parseInt(req.query.page as string) || 0;
-    const size = parseInt(req.query.size as string) || 10;
-    const skip = page * size;
-    
-    // Nếu sắp xếp theo giá, sử dụng giá thực tế (ưu tiên sale price)
-    if (sortBy === 'price') {
-      // Sắp xếp bằng aggregation để tính giá thực tế
-      const direction = sortDirection === 'asc' ? 1 : -1;
-      
-      console.log('=== Backend Price Sort Debug ===');
-      console.log('Filter:', JSON.stringify(filter, null, 2));
-      console.log('Sort direction:', direction);
-      console.log('Page:', page, 'Size:', size, 'Skip:', skip);
-      
-      // Tạo pipeline aggregate để tính giá thực tế và sắp xếp
-      const pipeline: any[] = [];
-      
-      // Match với filter
-      if (Object.keys(filter).length > 0) {
-        pipeline.push({ $match: filter });
-      }
-      
-      // Thêm field actualPrice để sort - xử lý salePrice = 0
-      pipeline.push({
+    // Lookup để join với category và brand (thay thế populate)
+    pipeline.push(
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands", 
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1, slug: 1 } }]
+        }
+      },
+      {
         $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] },
           actualPrice: {
             $cond: {
               if: { $and: ["$isSale", { $gt: ["$salePrice", 0] }] },
@@ -283,101 +256,50 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
             }
           }
         }
-      });
-      
-      // Sort theo actualPrice
-      pipeline.push({ $sort: { actualPrice: direction } });
-      
-      console.log('Aggregation Pipeline:', JSON.stringify(pipeline, null, 2));
-      
-      // Đếm tổng số documents
-      const totalItems = await Product.countDocuments(filter);
-      console.log('Total items from countDocuments:', totalItems);
-      
-      // Thêm skip và limit
-      pipeline.push({ $skip: skip });
-      pipeline.push({ $limit: size });
-      
-      // Thực hiện aggregation
-      const productDocs = await Product.aggregate(pipeline);
-      console.log('Products returned from aggregation:', productDocs.length);
-      
-      // Convert về model instances và populate
-      const products = await Promise.all(
-        productDocs.map(async (doc) => {
-          const product = await Product.findById(doc._id);
-          return await populateProduct(product);
-        })
-      );
-      
-      console.log('Final products count:', products.length);
-      console.log('First few products prices:', products.slice(0, 3).map(p => ({
-        name: p?.name,
-        price: p?.price,
-        salePrice: p?.salePrice,
-        isSale: p?.isSale,
-        actualPrice: p?.isSale ? p?.salePrice : p?.price
-      })));
-      console.log('================================');
-      
-      // Tạo thông tin phân trang
-      const pagination = {
-        page: page + 1,
-        totalPages: Math.ceil(totalItems / size),
-        totalItems
-      };
-      
-      return sendSuccessResponse(res, 'Lấy danh sách sản phẩm thành công', products, 200, pagination);
-    }
-    
-    // Nếu sắp xếp theo tên, sử dụng collation để sort đúng tiếng Việt
-    if (sortBy === 'name') {
-      const direction = sortDirection === 'asc' ? 1 : -1;
-      
-      // Đếm tổng số documents
-      const totalItems = await Product.countDocuments(filter);
-      
-      // Query với collation để sort tiếng Việt đúng
-      const productDocs = await Product.find(filter)
-        .collation({ 
-          locale: 'vi', 
-          strength: 2, // Ignore case và diacritics
-          caseLevel: false,
-          numericOrdering: true 
-        })
-        .sort({ name: direction })
-        .skip(skip)
-        .limit(size);
-      
-      // Sử dụng helper để populate
-      const products = await Promise.all(
-        productDocs.map(product => populateProduct(product))
-      );
-      
-      // Tạo thông tin phân trang
-      const pagination = {
-        page: page + 1,
-        totalPages: Math.ceil(totalItems / size),
-        totalItems
-      };
-      
-      return sendSuccessResponse(res, 'Lấy danh sách sản phẩm thành công', products, 200, pagination);
-    }
-    
-    // Sắp xếp thông thường cho các field khác
-    sort[sortBy as string] = sortDirection === 'asc' ? 1 : -1;
-    
-    // Thực hiện truy vấn cho các field khác
-    const totalItems = await Product.countDocuments(filter);
-    const productDocs = await Product.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(size);
-    
-    // Sử dụng helper để populate
-    const products = await Promise.all(
-      productDocs.map(product => populateProduct(product))
+      }
     );
+    
+    // Đếm tổng số documents trước khi phân trang
+    const countPipeline = [...pipeline, { $count: "totalCount" }];
+    const countResult = await Product.aggregate(countPipeline);
+    const totalItems = countResult[0]?.totalCount || 0;
+    
+    // Thêm sort stage
+    if (sortBy === 'price') {
+      pipeline.push({ 
+        $sort: { actualPrice: sortDirection === 'asc' ? 1 : -1 } 
+      });
+    } else if (sortBy === 'name') {
+      // Sắp xếp theo tên sản phẩm
+      pipeline.push({ 
+        $sort: { name: sortDirection === 'asc' ? 1 : -1 } 
+      });
+    } else {
+      // Sắp xếp theo các field khác (createdAt, etc.)
+      const sortField = sortBy as string;
+      pipeline.push({ 
+        $sort: { [sortField]: sortDirection === 'asc' ? 1 : -1 } 
+      });
+    }
+    
+    // Phân trang
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: size });
+    
+    // Thực hiện aggregation với collation cho tiếng Việt (nếu sort by name)
+    let products;
+    if (sortBy === 'name') {
+      products = await Product.aggregate(pipeline, {
+        collation: {
+          locale: 'vi',
+          strength: 2,
+          caseLevel: false,
+          numericOrdering: true
+        }
+      });
+    } else {
+      products = await Product.aggregate(pipeline);
+    }
     
     // Tạo thông tin phân trang
     const pagination = {
@@ -388,8 +310,11 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
     
     return sendSuccessResponse(res, 'Lấy danh sách sản phẩm thành công', products, 200, pagination);
   } catch (error) {
-
-    return sendErrorResponse(res, 'Không thể lấy danh sách sản phẩm' + error, 500);
+    console.error('=== getAllProducts Error ===');
+    console.error('Error details:', error);
+    console.error('Error stack:', (error as Error).stack);
+    console.error('============================');
+    return sendErrorResponse(res, 'Không thể lấy danh sách sản phẩm: ' + (error as Error).message, 500);
   }
 });
 
@@ -400,17 +325,38 @@ export const getAllProducts = asyncHandler(async (req: Request, res: Response) =
  */
 export const getNewArrivals = asyncHandler(async (req: Request, res: Response) => {
   try {
-    // Tìm sản phẩm mới nhất trước
-    const productDocs = await Product.find({ isActive: true })
-      .sort({ createdAt: -1 })
-      .limit(10);
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
+    const products = await Product.aggregate([
+      { $match: { isActive: true } },
+      { $sort: { createdAt: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand", 
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1, slug: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
+      }
+    ]);
     
-    // Populate từng sản phẩm
-    const populatedProducts = await Promise.all(
-      productDocs.map(product => populateProduct(product))
-    );
-    
-    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm mới thành công', populatedProducts);
+    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm mới thành công', products);
   } catch (error) {
     return sendErrorResponse(res, 'Không thể lấy danh sách sản phẩm mới', 500);
   }
@@ -423,24 +369,37 @@ export const getNewArrivals = asyncHandler(async (req: Request, res: Response) =
  */
 export const getTopSellingProducts = asyncHandler(async (req: Request, res: Response) => {
   try {
-    // Trong thực tế, bạn cần có logic để tính toán sản phẩm bán chạy
-    // Đây chỉ là code ví dụ, lấy 5 sản phẩm ngẫu nhiên
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
     const products = await Product.aggregate([
       { $match: { isActive: true } },
-      { $sample: { size: 5 } }
+      { $sample: { size: 5 } }, // Random sampling for demo
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id", 
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand", 
+          pipeline: [{ $project: { name: 1, logo: 1, slug: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
+      }
     ]);
     
-    // Chuyển đổi các document từ aggregate sang model đầy đủ
-    const productDocs = await Promise.all(
-      products.map(product => Product.findById(product._id))
-    );
-    
-    // Sử dụng helper để populate
-    const populatedProducts = await Promise.all(
-      productDocs.map(product => populateProduct(product))
-    );
-    
-    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm bán chạy thành công', populatedProducts);
+    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm bán chạy thành công', products);
   } catch (error) {
     return sendErrorResponse(res, 'Không thể lấy danh sách sản phẩm bán chạy', 500);
   }
@@ -453,20 +412,20 @@ export const getTopSellingProducts = asyncHandler(async (req: Request, res: Resp
  */
 export const getTopDiscountedProducts = asyncHandler(async (req: Request, res: Response) => {
   try {
-    // Sử dụng aggregation để tính mức giảm giá và sắp xếp
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
     const products = await Product.aggregate([
       {
         $match: { 
           isActive: true,
           isSale: true,
           salePrice: { $gt: 0 },
-          price: { $gt: 0 } // Đảm bảo price > 0 để tránh chia cho 0
+          price: { $gt: 0 }
         }
       },
       {
         $addFields: {
-          discountAmount: { $subtract: ["$price", "$salePrice"] }, // Số tiền giảm
-          discountPercentage: { // Phần trăm giảm giá
+          discountAmount: { $subtract: ["$price", "$salePrice"] },
+          discountPercentage: {
             $multiply: [
               { $divide: [{ $subtract: ["$price", "$salePrice"] }, "$price"] },
               100
@@ -474,25 +433,35 @@ export const getTopDiscountedProducts = asyncHandler(async (req: Request, res: R
           }
         }
       },
+      { $sort: { discountPercentage: -1 } },
+      { $limit: 10 },
       {
-        $sort: { discountPercentage: -1 } // Sắp xếp theo % giảm giá từ cao đến thấp
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
       },
       {
-        $limit: 10
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id", 
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1, slug: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
       }
     ]);
     
-    // Chuyển đổi các document từ aggregate sang model đầy đủ và populate
-    const productDocs = await Promise.all(
-      products.map(product => Product.findById(product._id))
-    );
-    
-    // Sử dụng helper để populate
-    const populatedProducts = await Promise.all(
-      productDocs.map(product => populateProduct(product))
-    );
-    
-    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm giảm giá thành công', populatedProducts);
+    return sendSuccessResponse(res, 'Lấy danh sách sản phẩm giảm giá thành công', products);
   } catch (error) {
     return sendErrorResponse(res, 'Không thể lấy danh sách sản phẩm giảm giá', 500);
   }
@@ -511,20 +480,44 @@ export const searchProducts = asyncHandler(async (req: Request, res: Response) =
       return sendErrorResponse(res, 'Từ khóa tìm kiếm là bắt buộc', 400);
     }
     
-    const productDocs = await Product.find({
-      isActive: true,
-      $or: [
-        { name: { $regex: keyword, $options: 'i' } },
-        { description: { $regex: keyword, $options: 'i' } }
-      ]
-    });
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
+    const products = await Product.aggregate([
+      {
+        $match: {
+          isActive: true,
+          $or: [
+            { name: { $regex: keyword, $options: 'i' } },
+            { description: { $regex: keyword, $options: 'i' } }
+          ]
+        }
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1, slug: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
+      }
+    ]);
     
-    // Sử dụng helper để populate
-    const populatedProducts = await Promise.all(
-      productDocs.map(product => populateProduct(product))
-    );
-    
-    return sendSuccessResponse(res, 'Tìm kiếm sản phẩm thành công', populatedProducts);
+    return sendSuccessResponse(res, 'Tìm kiếm sản phẩm thành công', products);
   } catch (error) {
     return sendErrorResponse(res, 'Không thể tìm kiếm sản phẩm', 500);
   }
@@ -540,6 +533,7 @@ export const getProductsByGender = asyncHandler(async (req: Request, res: Respon
     const { gender } = req.params;
     const page = parseInt(req.query.page as string) || 0;
     const size = parseInt(req.query.size as string) || 10;
+    const skip = page * size;
     
     // Validate gender
     const validGenders = ['Men', 'Women', 'Unisex', 'Children'];
@@ -547,29 +541,51 @@ export const getProductsByGender = asyncHandler(async (req: Request, res: Respon
       return sendErrorResponse(res, 'Giới tính không hợp lệ', 400);
     }
     
-    const query = { 
+    const matchStage = { 
       gender, 
       isActive: true 
     };
     
-    const totalItems = await Product.countDocuments(query);
+    // Đếm tổng số documents
+    const totalItems = await Product.countDocuments(matchStage);
     const totalPages = Math.ceil(totalItems / size);
     
-    const products = await Product.find(query)
-      .sort({ createdAt: -1 })
-      .skip(page * size)
-      .limit(size)
-      .populate('category', 'name')
-      .populate('brand', 'name logo')
-      .populate({
-        path: 'productImages',
-        options: { limit: 1 }, // Chỉ lấy 1 hình ảnh đại diện
-      });
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
+    const products = await Product.aggregate([
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: size },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
+      }
+    ]);
     
     return sendSuccessResponse(res, 'Lấy danh sách sản phẩm theo giới tính thành công', {
       products,
       pagination: {
-        page,
+        page: page + 1,
         totalPages,
         totalItems,
       },
@@ -589,30 +605,53 @@ export const getProductsBySize = asyncHandler(async (req: Request, res: Response
     const { size: productSize } = req.params;
     const page = parseInt(req.query.page as string) || 0;
     const size = parseInt(req.query.size as string) || 10;
+    const skip = page * size;
     
-    const query = { 
+    const matchStage = { 
       sizes: { $in: [productSize] }, 
       isActive: true 
     };
     
-    const totalItems = await Product.countDocuments(query);
+    // Đếm tổng số documents
+    const totalItems = await Product.countDocuments(matchStage);
     const totalPages = Math.ceil(totalItems / size);
     
-    const products = await Product.find(query)
-      .sort({ createdAt: -1 })
-      .skip(page * size)
-      .limit(size)
-      .populate('category', 'name')
-      .populate('brand', 'name logo')
-      .populate({
-        path: 'productImages',
-        options: { limit: 1 }, // Chỉ lấy 1 hình ảnh đại diện
-      });
+    // Sử dụng aggregation pipeline với lookup để tối ưu hiệu suất
+    const products = await Product.aggregate([
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: size },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, logo: 1 } }]
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ["$category", 0] },
+          brand: { $arrayElemAt: ["$brand", 0] }
+        }
+      }
+    ]);
     
     return sendSuccessResponse(res, 'Lấy danh sách sản phẩm theo kích thước thành công', {
       products,
       pagination: {
-        page,
+        page: page + 1,
         totalPages,
         totalItems,
       },
