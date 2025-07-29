@@ -6,7 +6,7 @@ const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Cosmetics API',
+      title: 'E-commerce API',
       version: '1.0.0',
       description: 'API documentation for Cosmetics E-commerce Application',
     },
