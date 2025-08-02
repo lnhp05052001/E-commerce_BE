@@ -15,6 +15,8 @@ export interface IUser extends Document {
   phone?: string;
   otp?: string;
   role: string;
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
   addresses: RelationList<IAddress>;
   reviews: RelationList<IReview>;
   cart?: Relation<ICart>;
@@ -59,6 +61,12 @@ const UserSchema = new Schema<IUser>(
     },
     otp: {
       type: String,
+    },
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpires: {
+      type: Date,
     },
     role: {
       type: String,

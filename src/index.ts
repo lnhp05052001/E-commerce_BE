@@ -22,6 +22,7 @@ import productRoutes from './routes/product.routes';
 import reportRoutes from './routes/report.routes';
 import uploadRoutes from './routes/upload.routes';
 import userRoutes from './routes/user.routes';
+import emailService from './services/email.service';
  
 // Cấu hình dotenv
 dotenv.config();
@@ -98,7 +99,15 @@ app.use(errorHandler);
 // Khởi động server
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server đang chạy ở chế độ ${process.env.NODE_ENV} trên cổng ${PORT}`);
   console.log(`API Documentation có sẵn tại http://localhost:${PORT}/api-docs`);
+  
+  // Kiểm tra email service
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('Đang kiểm tra kết nối email service...');
+    await emailService.verifyConnection();
+  } else {
+    console.log('⚠️  Email service chưa được cấu hình. Xem file EMAIL_SETUP.md để biết hướng dẫn.');
+  }
 });

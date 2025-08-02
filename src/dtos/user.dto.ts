@@ -70,3 +70,15 @@ export interface OtpRequest {
 export interface ChangeRoleRequest {
   role: 'USER' | 'ADMIN';
 }
+
+// Interface cho quên mật khẩu
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+// Interface cho reset mật khẩu
+export interface ResetPasswordRequest {
+  token: string;
+  password: string;
+  confirmPassword: string;
+}
