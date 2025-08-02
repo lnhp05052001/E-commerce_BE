@@ -447,27 +447,13 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     resetUrl: resetUrl,
   });
 
-  // Nội dung email plain text
-  const textContent = `
-    Đặt lại mật khẩu - Fashion Factory
-    
-    Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.
-    
-    Để đặt lại mật khẩu, vui lòng truy cập link sau:
-    ${resetUrl}
-    
-    Link này sẽ hết hạn sau 10 phút.
-    
-    Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.
-    
-    Trân trọng,
-    Đội ngũ Fashion Factory
-  `;
+  // Nội dung email plain text (backup cho client không hỗ trợ HTML)
+  const textContent = `Đặt lại mật khẩu: ${resetUrl} (Link hết hạn sau 10 phút)`;
 
   try {
     await sendEmail({
       to: user.email,
-      subject: 'Đặt lại mật khẩu - Fashion Factory',
+      subject: 'Đặt lại mật khẩu - Boutique',
       text: textContent,
       html: htmlContent,
     });

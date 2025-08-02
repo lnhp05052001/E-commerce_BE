@@ -77,7 +77,7 @@ class EmailService {
 
       // Send the email
       await this.transporter.sendMail({
-        from: process.env.EMAIL_FROM || '"Fashion Factory" <noreply@example.com>',
+        from: process.env.EMAIL_FROM || '"Boutique" <noreply@example.com>',
         to,
         subject,
         text,
