@@ -1,12 +1,18 @@
  
 import { Request, Response } from 'express';
+import crypto from 'crypto';
+import fs from 'fs';
+import Handlebars from 'handlebars';
+import path from 'path';
 import {
   ChangePasswordRequest,
   ChangeRoleRequest,
+  ForgotPasswordRequest,
   LoginRequest,
   LoginResponse,
   OtpRequest,
   RegisterRequest,
+  ResetPasswordRequest,
   UserUpdateRequest
 } from '../dtos/user.dto';
 import Cart from '../models/cart.model';
@@ -28,7 +34,7 @@ const generateOTP = (): string => {
 
 /**
  * @desc    Đăng ký người dùng mới
- * @route   POST /api/users/register
+ * @route   POST /api/user/register
  * @access  Public
  */
 export const register = asyncHandler(async (req: Request, res: Response) => {
@@ -72,7 +78,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Đăng nhập người dùng
- * @route   POST /api/users/login
+ * @route   POST /api/user/login
  * @access  Public
  */
 export const login = asyncHandler(async (req: Request, res: Response) => {
@@ -111,7 +117,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Lấy thông tin người dùng đã đăng nhập
- * @route   GET /api/users/me
+ * @route   GET /api/user/me
  * @access  Private
  */
 export const getUserProfile = asyncHandler(async (req: Request, res: Response) => {
@@ -126,7 +132,7 @@ export const getUserProfile = asyncHandler(async (req: Request, res: Response) =
 
 /**
  * @desc    Cập nhật avatar người dùng
- * @route   PUT /api/users/avatar
+ * @route   PUT /api/user/avatar
  * @access  Private
  */
 export const updateAvatar = asyncHandler(async (req: Request, res: Response) => {
@@ -147,7 +153,7 @@ export const updateAvatar = asyncHandler(async (req: Request, res: Response) => 
 
 /**
  * @desc    Cập nhật thông tin người dùng
- * @route   PUT /api/users/update
+ * @route   PUT /api/user/update
  * @access  Private
  */
 export const updateUser = asyncHandler(async (req: Request, res: Response) => {
@@ -172,7 +178,7 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Gửi mã OTP qua email
- * @route   POST /api/users/send-otp
+ * @route   POST /api/user/send-otp
  * @access  Public
  */
 export const sendOtp = asyncHandler(async (req: Request, res: Response) => {
@@ -202,7 +208,7 @@ export const sendOtp = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Xác thực mã OTP
- * @route   POST /api/users/verify-otp
+ * @route   POST /api/user/verify-otp
  * @access  Public
  */
 export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
@@ -229,7 +235,7 @@ export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Đổi mật khẩu
- * @route   POST /api/users/change-password
+ * @route   POST /api/user/change-password
  * @access  Private
  */
 export const changePassword = asyncHandler(async (req: Request, res: Response) => {
@@ -285,7 +291,7 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
 
 /**
  * @desc    Lấy danh sách tất cả người dùng (chỉ admin)
- * @route   GET /api/users/all
+ * @route   GET /api/user/all
  * @access  Admin
  */
 export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
@@ -318,7 +324,7 @@ export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Lấy người dùng theo ID
- * @route   GET /api/users/:id
+ * @route   GET /api/user/:id
  * @access  Admin
  */
 export const getUserById = asyncHandler(async (req: Request, res: Response) => {
@@ -335,7 +341,7 @@ export const getUserById = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Xóa người dùng theo ID (chỉ admin)
- * @route   DELETE /api/users/:id
+ * @route   DELETE /api/user/:id
  * @access  Admin
  */
 export const deleteUser = asyncHandler(async (req: Request, res: Response) => {
@@ -354,7 +360,7 @@ export const deleteUser = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Khóa/mở khóa người dùng (chỉ admin)
- * @route   PUT /api/users/block/:id
+ * @route   PUT /api/user/block/:id
  * @access  Admin
  */
 export const blockUser = asyncHandler(async (req: Request, res: Response) => {
@@ -377,7 +383,7 @@ export const blockUser = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * @desc    Thay đổi vai trò người dùng (chỉ admin)
- * @route   PUT /api/users/role/:id
+ * @route   PUT /api/user/role/:id
  * @access  Admin
  */
 export const changeRole = asyncHandler(async (req: Request, res: Response) => {
@@ -398,4 +404,109 @@ export const changeRole = asyncHandler(async (req: Request, res: Response) => {
   await user.save();
 
   return sendSuccessResponse(res, 'Thay đổi vai trò người dùng thành công', user);
+});
+
+/**
+ * @desc    Gửi email để reset mật khẩu
+ * @route   POST /api/user/forgot-password
+ * @access  Public
+ */
+export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+  const { email }: ForgotPasswordRequest = req.body;
+
+  if (!email) {
+    return sendErrorResponse(res, 'Email là bắt buộc', 400);
+  }
+
+  // Tìm user theo email
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    return sendErrorResponse(res, 'Không tìm thấy tài khoản với email này', 404);
+  }
+
+  // Tạo reset token
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  
+  // Hash token và lưu vào database
+  user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 phút
+
+  await user.save();
+
+  // Tạo reset URL - trỏ đến frontend
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+
+  // Đọc template và compile
+  const templatePath = path.join(__dirname, '..', 'templates', 'reset-password.hbs');
+  const templateContent = fs.readFileSync(templatePath, 'utf8');
+  const compiledTemplate = Handlebars.compile(templateContent);
+  
+  // Render template với data
+  const htmlContent = compiledTemplate({
+    resetUrl: resetUrl,
+  });
+
+  // Nội dung email plain text (backup cho client không hỗ trợ HTML)
+  const textContent = `Đặt lại mật khẩu: ${resetUrl} (Link hết hạn sau 10 phút)`;
+
+  try {
+    await sendEmail({
+      to: user.email,
+      subject: 'Đặt lại mật khẩu - Boutique',
+      text: textContent,
+      html: htmlContent,
+    });
+
+    return sendSuccessResponse(res, 'Email đặt lại mật khẩu đã được gửi');
+  } catch (error) {
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    return sendErrorResponse(res, 'Có lỗi khi gửi email. Vui lòng thử lại sau', 500);
+  }
+});
+
+/**
+ * @desc    Reset mật khẩu
+ * @route   POST /api/user/reset-password
+ * @access  Public
+ */
+export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
+  const { token, password, confirmPassword }: ResetPasswordRequest = req.body;
+
+  if (!token || !password || !confirmPassword) {
+    return sendErrorResponse(res, 'Token, mật khẩu và xác nhận mật khẩu là bắt buộc', 400);
+  }
+
+  if (password !== confirmPassword) {
+    return sendErrorResponse(res, 'Mật khẩu và xác nhận mật khẩu không khớp', 400);
+  }
+
+  if (password.length < 8) {
+    return sendErrorResponse(res, 'Mật khẩu phải có ít nhất 8 ký tự', 400);
+  }
+
+  // Hash token để so sánh với database
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  // Tìm user với token hợp lệ và chưa hết hạn
+  const user = await User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpires: { $gt: Date.now() }
+  });
+
+  if (!user) {
+    return sendErrorResponse(res, 'Token không hợp lệ hoặc đã hết hạn', 400);
+  }
+
+  // Cập nhật mật khẩu mới
+  user.password = password;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpires = undefined;
+
+  await user.save();
+
+  return sendSuccessResponse(res, 'Mật khẩu đã được đặt lại thành công');
 });

@@ -4,11 +4,13 @@ import {
     changePassword,
     changeRole,
     deleteUser,
+    forgotPassword,
     getAllUsers,
     getUserById,
     getUserProfile,
     login,
     register,
+    resetPassword,
     sendOtp,
     updateAvatar,
     updateUser,
@@ -28,7 +30,7 @@ const router = Router();
 
 /**
  * @swagger
- * /api/users/register:
+ * /api/user/register:
  *   post:
  *     summary: Register a new user
  *     tags: [Users]
@@ -398,5 +400,66 @@ router.put('/block/:id', protect, admin, blockUser);
  *         description: User not found
  */
 router.put('/role/:id', protect, admin, changeRole);
+
+/**
+ * @swagger
+ * /api/users/forgot-password:
+ *   post:
+ *     summary: Send password reset email
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Password reset email sent successfully
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Error sending email
+ */
+router.post('/forgot-password', forgotPasswordRateLimit, forgotPassword);
+
+/**
+ * @swagger
+ * /api/users/reset-password:
+ *   post:
+ *     summary: Reset password with token
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - password
+ *               - confirmPassword
+ *             properties:
+ *               token:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *                 format: password
+ *               confirmPassword:
+ *                 type: string
+ *                 format: password
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *       400:
+ *         description: Invalid token or passwords don't match
+ */
+router.post('/reset-password', resetPassword);
 
 export default router;

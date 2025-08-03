@@ -62,6 +62,37 @@ class EmailService {
   }
 
   /**
+   * Send simple email (for reset password, notifications, etc.)
+   * @param to - Recipient email address
+   * @param subject - Email subject
+   * @param text - Plain text content
+   * @param html - HTML content (optional)
+   */
+  async sendEmail(to: string, subject: string, text: string, html?: string): Promise<boolean> {
+    try {
+      // Validate email format
+      if (!this.isValidEmail(to)) {
+        throw new Error('Invalid email address');
+      }
+
+      // Send the email
+      await this.transporter.sendMail({
+        from: process.env.EMAIL_FROM || '"Boutique" <noreply@example.com>',
+        to,
+        subject,
+        text,
+        html: html || text,
+      });
+
+      console.log(`Email sent to ${to}`);
+      return true;
+    } catch (error) {
+      console.error('Error sending email:', error);
+      return false;
+    }
+  }
+
+  /**
    * Validate email format
    * @param email - Email address to validate
    * @returns True if email is valid
@@ -69,6 +100,21 @@ class EmailService {
   private isValidEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+  }
+
+  /**
+   * Verify email service connection
+   * @returns Promise<boolean>
+   */
+  async verifyConnection(): Promise<boolean> {
+    try {
+      await this.transporter.verify();
+      console.log('✅ Email service connected successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Email service connection failed:', error);
+      return false;
+    }
   }
 }
 

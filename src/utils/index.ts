@@ -87,18 +87,16 @@ export interface EmailOptions {
   html?: string;
 }
 
-// Hàm gửi email
+// Hàm gửi email sử dụng EmailService
 export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
   try {
-    // Trong môi trường thực tế, bạn sẽ cần sử dụng một thư viện như nodemailer
-    // Đây là một hàm giả định để làm ví dụ
-    console.log('Gửi email...');
-    console.log('Đến:', options.to);
-    console.log('Chủ đề:', options.subject);
-    console.log('Nội dung:', options.text);
-    
-    // Giả định email đã được gửi thành công
-    return true;
+    const emailService = await import('../services/email.service');
+    return await emailService.default.sendEmail(
+      options.to,
+      options.subject,
+      options.text,
+      options.html
+    );
   } catch (error) {
     console.error('Lỗi khi gửi email:', error);
     return false;
